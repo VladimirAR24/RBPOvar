@@ -18,17 +18,70 @@ jobs:
         run: |
           docker build -t int-public-sast .
 
-      - name: Run SAST tools and save report
+      - name: Run SAST tools and save reports
         run: |
-          docker run --rm int-public-sast > sast-report.txt 2>&1 || true
-          echo "===== SAST REPORT ====="
+          docker run --rm int-public-sast sh -c "\
+            bandit --ini /app/.bandit -r /app/scr > /app/bandit-report.txt 2>&1 || true; \
+            semgrep scan --config /app/semgrep.yml /app/scr --text-output=/app/semgrep-report.txt --json-output=/app/semgrep-report.json || true; \
+            echo '===== BANDIT REPORT ====='; cat /app/bandit-report.txt; \
+            echo; \
+            echo '===== SEMGREP REPORT ====='; cat /app/semgrep-report.txt; \
+          " > sast-report.txt 2>&1 || true
+
+          echo "===== COMBINED SAST REPORT ====="
           cat sast-report.txt
 
-      - name: Upload SAST report
+      - name: Copy reports from container workspace
+        run: |
+          CID=$(docker create int-public-sast)
+          docker cp "$CID":/app/bandit-report.txt ./bandit-report.txt || true
+          docker cp "$CID":/app/semgrep-report.txt ./semgrep-report.txt || true
+          docker cp "$CID":/app/semgrep-report.json ./semgrep-report.json || true
+          docker rm "$CID"
+
+      - name: Show Semgrep findings summary
+        run: |
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          path = Path("semgrep-report.json")
+          if not path.exists():
+              print("semgrep-report.json not found")
+              raise SystemExit(0)
+
+          data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+          results = data.get("results", [])
+
+          print("===== SEMGREP FINDINGS SUMMARY =====")
+          if not results:
+              print("No Semgrep findings detected")
+              raise SystemExit(0)
+
+          for i, result in enumerate(results, 1):
+              rule_id = result.get("check_id", "unknown-rule")
+              path_ = result.get("path", "unknown-file")
+              start = result.get("start", {})
+              line = start.get("line", "?")
+              extra = result.get("extra", {})
+              severity = extra.get("severity", result.get("severity", "UNKNOWN"))
+              message = extra.get("message", "").strip()
+
+              print(f"{i}. [{severity}] {rule_id}")
+              print(f"   File: {path_}:{line}")
+              print(f"   Message: {message}")
+              print()
+          EOF
+
+      - name: Upload SAST artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sast-report
-          path: sast-report.txt
+          path: |
+            sast-report.txt
+            bandit-report.txt
+            semgrep-report.txt
+            semgrep-report.json
           retention-days: 7
 
   download_artifacts:
@@ -37,7 +90,7 @@ jobs:
     needs: sast
 
     steps:
-      - name: Download SAST report artifact
+      - name: Download SAST artifacts
         uses: actions/download-artifact@v4
         with:
           name: sast-report
@@ -47,8 +100,11 @@ jobs:
           echo "===== DOWNLOADED ARTIFACTS ====="
           ls -la
           echo
-          echo "===== CONTENT OF sast-report.txt ====="
-          cat sast-report.txt
+          echo "===== semgrep-report.txt ====="
+          cat semgrep-report.txt || true
+          echo
+          echo "===== bandit-report.txt ====="
+          cat bandit-report.txt || true
 
   security_gate:
     name: Security Gate
@@ -56,53 +112,55 @@ jobs:
     needs: sast
 
     steps:
-      - name: Download SAST report
+      - name: Download SAST artifacts
         uses: actions/download-artifact@v4
         with:
           name: sast-report
 
-      - name: Check SAST report
+      - name: Check Semgrep JSON report
         run: |
           python3 << 'EOF'
-          import re
+          import json
           import sys
           from pathlib import Path
 
-          report_path = Path("sast-report.txt")
+          report_path = Path("semgrep-report.json")
 
           if not report_path.exists():
-              print("SECURITY GATE FAILED: sast-report.txt not found")
+              print("SECURITY GATE FAILED: semgrep-report.json not found")
               sys.exit(1)
 
-          content = report_path.read_text(encoding="utf-8", errors="ignore")
+          data = json.loads(report_path.read_text(encoding="utf-8", errors="ignore"))
+          results = data.get("results", [])
 
-          blocking_matches = []
+          blocking = []
 
-          # Ищем только достаточно конкретные индикаторы HIGH severity
-          specific_patterns = [
-              r"Severity:\s*HIGH",
-              r"severity:\s*HIGH",
-              r"Issue severity:\s*HIGH",
-              r"High severity findings:\s*[1-9]\d*",
-          ]
+          for result in results:
+              extra = result.get("extra", {})
+              severity = str(extra.get("severity", result.get("severity", "UNKNOWN"))).upper()
 
-          for pattern in specific_patterns:
-              matches = re.findall(pattern, content, flags=re.IGNORECASE)
-              if matches:
-                  blocking_matches.extend(matches)
+              if severity in {"HIGH", "CRITICAL", "ERROR"}:
+                  blocking.append({
+                      "rule_id": result.get("check_id", "unknown-rule"),
+                      "file": result.get("path", "unknown-file"),
+                      "line": result.get("start", {}).get("line", "?"),
+                      "severity": severity,
+                      "message": extra.get("message", "").strip()
+                  })
 
           print("Security Gate policy:")
-          print("- block pipeline only if report contains real HIGH severity findings")
+          print("- block pipeline if HIGH or CRITICAL findings are present")
           print()
 
-          if blocking_matches:
+          if blocking:
               print("Detected blocking findings:")
-              for m in blocking_matches:
-                  print("-", m)
+              for item in blocking:
+                  print(f"- [{item['severity']}] {item['rule_id']} at {item['file']}:{item['line']}")
+                  print(f"  {item['message']}")
               print()
               print("SECURITY GATE FAILED")
               sys.exit(1)
 
-          print("No blocking HIGH severity findings detected")
+          print("No blocking HIGH/CRITICAL findings detected")
           print("SECURITY GATE PASSED")
           EOF
