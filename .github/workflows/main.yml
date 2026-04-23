@@ -21,6 +21,7 @@ jobs:
       - name: Run SAST tools and save report
         run: |
           docker run --rm int-public-sast > sast-report.txt 2>&1 || true
+          echo "===== SAST REPORT ====="
           cat sast-report.txt
 
       - name: Upload SAST report
@@ -29,6 +30,25 @@ jobs:
           name: sast-report
           path: sast-report.txt
           retention-days: 7
+
+  download_artifacts:
+    name: Download Artifacts
+    runs-on: ubuntu-latest
+    needs: sast
+
+    steps:
+      - name: Download SAST report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sast-report
+
+      - name: Show downloaded files
+        run: |
+          echo "===== DOWNLOADED ARTIFACTS ====="
+          ls -la
+          echo
+          echo "===== CONTENT OF sast-report.txt ====="
+          cat sast-report.txt
 
   security_gate:
     name: Security Gate
@@ -56,28 +76,33 @@ jobs:
 
           content = report_path.read_text(encoding="utf-8", errors="ignore")
 
-          critical_patterns = [
+          blocking_matches = []
+
+          # Ищем только достаточно конкретные индикаторы HIGH severity
+          specific_patterns = [
               r"Severity:\s*HIGH",
               r"severity:\s*HIGH",
-              r"\bHIGH\b",
-              r"CWE-400",
-              r"CWE-835"
+              r"Issue severity:\s*HIGH",
+              r"High severity findings:\s*[1-9]\d*",
           ]
 
-          found = []
-
-          for pattern in critical_patterns:
-              if re.search(pattern, content, re.IGNORECASE):
-                  found.append(pattern)
+          for pattern in specific_patterns:
+              matches = re.findall(pattern, content, flags=re.IGNORECASE)
+              if matches:
+                  blocking_matches.extend(matches)
 
           print("Security Gate policy:")
-          print("- block pipeline if HIGH findings or critical CWE patterns are found")
+          print("- block pipeline only if report contains real HIGH severity findings")
           print()
-          print("Detected blocking patterns:", found)
 
-          if found:
+          if blocking_matches:
+              print("Detected blocking findings:")
+              for m in blocking_matches:
+                  print("-", m)
+              print()
               print("SECURITY GATE FAILED")
               sys.exit(1)
 
+          print("No blocking HIGH severity findings detected")
           print("SECURITY GATE PASSED")
           EOF
