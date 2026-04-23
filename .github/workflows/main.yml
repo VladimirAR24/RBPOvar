@@ -18,26 +18,33 @@ jobs:
         run: |
           docker build -t int-public-sast .
 
+      - name: Prepare reports directory
+        run: |
+          mkdir -p reports
+
       - name: Run SAST tools and save reports
         run: |
-          docker run --rm int-public-sast sh -c "\
-            bandit --ini /app/.bandit -r /app/scr > /app/bandit-report.txt 2>&1 || true; \
-            semgrep scan --config /app/semgrep.yml /app/scr --text-output=/app/semgrep-report.txt --json-output=/app/semgrep-report.json || true; \
-            echo '===== BANDIT REPORT ====='; cat /app/bandit-report.txt; \
-            echo; \
-            echo '===== SEMGREP REPORT ====='; cat /app/semgrep-report.txt; \
-          " > sast-report.txt 2>&1 || true
+          docker run --rm \
+            -v "${{ github.workspace }}/reports:/out" \
+            int-public-sast sh -c "
+              bandit --ini /app/.bandit -r /app/scr > /out/bandit-report.txt 2>&1 || true
+              semgrep scan --config /app/semgrep.yml /app/scr > /out/semgrep-report.txt 2>/out/semgrep.log || true
+              semgrep scan --config /app/semgrep.yml --json -o /out/semgrep-report.json /app/scr || true
+            "
 
-          echo "===== COMBINED SAST REPORT ====="
-          cat sast-report.txt
-
-      - name: Copy reports from container workspace
+      - name: Show generated files
         run: |
-          CID=$(docker create int-public-sast)
-          docker cp "$CID":/app/bandit-report.txt ./bandit-report.txt || true
-          docker cp "$CID":/app/semgrep-report.txt ./semgrep-report.txt || true
-          docker cp "$CID":/app/semgrep-report.json ./semgrep-report.json || true
-          docker rm "$CID"
+          echo "===== REPORTS DIRECTORY ====="
+          ls -la reports
+          echo
+          echo "===== BANDIT REPORT ====="
+          cat reports/bandit-report.txt || true
+          echo
+          echo "===== SEMGREP REPORT ====="
+          cat reports/semgrep-report.txt || true
+          echo
+          echo "===== SEMGREP LOG ====="
+          cat reports/semgrep.log || true
 
       - name: Show Semgrep findings summary
         run: |
@@ -45,10 +52,10 @@ jobs:
           import json
           from pathlib import Path
 
-          path = Path("semgrep-report.json")
+          path = Path("reports/semgrep-report.json")
           if not path.exists():
               print("semgrep-report.json not found")
-              raise SystemExit(0)
+              raise SystemExit(1)
 
           data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
           results = data.get("results", [])
@@ -61,10 +68,9 @@ jobs:
           for i, result in enumerate(results, 1):
               rule_id = result.get("check_id", "unknown-rule")
               path_ = result.get("path", "unknown-file")
-              start = result.get("start", {})
-              line = start.get("line", "?")
+              line = result.get("start", {}).get("line", "?")
               extra = result.get("extra", {})
-              severity = extra.get("severity", result.get("severity", "UNKNOWN"))
+              severity = str(extra.get("severity", result.get("severity", "UNKNOWN"))).upper()
               message = extra.get("message", "").strip()
 
               print(f"{i}. [{severity}] {rule_id}")
@@ -78,10 +84,10 @@ jobs:
         with:
           name: sast-report
           path: |
-            sast-report.txt
-            bandit-report.txt
-            semgrep-report.txt
-            semgrep-report.json
+            reports/bandit-report.txt
+            reports/semgrep-report.txt
+            reports/semgrep-report.json
+            reports/semgrep.log
           retention-days: 7
 
   download_artifacts:
@@ -94,17 +100,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: sast-report
+          path: downloaded-reports
 
       - name: Show downloaded files
         run: |
           echo "===== DOWNLOADED ARTIFACTS ====="
-          ls -la
+          ls -la downloaded-reports
           echo
           echo "===== semgrep-report.txt ====="
-          cat semgrep-report.txt || true
+          cat downloaded-reports/semgrep-report.txt || true
           echo
           echo "===== bandit-report.txt ====="
-          cat bandit-report.txt || true
+          cat downloaded-reports/bandit-report.txt || true
 
   security_gate:
     name: Security Gate
@@ -116,6 +123,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: sast-report
+          path: downloaded-reports
 
       - name: Check Semgrep JSON report
         run: |
@@ -124,7 +132,7 @@ jobs:
           import sys
           from pathlib import Path
 
-          report_path = Path("semgrep-report.json")
+          report_path = Path("downloaded-reports/semgrep-report.json")
 
           if not report_path.exists():
               print("SECURITY GATE FAILED: semgrep-report.json not found")
