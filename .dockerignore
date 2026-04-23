@@ -1,0 +1,12 @@
+__pycache__/
+scr/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+*.evt
+*.exe
+*.txt
+
+.git
+.gitignore

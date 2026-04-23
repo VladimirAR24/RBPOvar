@@ -1,0 +1,192 @@
+Структура заголовка:
+
+#pragma pack (push, 1)
+typedef struct
+{
+    BYTE bVersion;			///<	Version number, see LOG_REP_STRUCT_CUR_VERSION in verno.h
+    DWORD dwHeaderSize;		///<	The REPORTHEADER sizeof
+    SYSTEMTIME TimeStamp;	///<	Time stamp when the header created, UTC
+
+    DWORD dwStationID;		///<	The same as AccessID 9054 board ID; 0x5555 in another case by default; can be set as any value
+    UINT uComputerID;		///<	Special flags; contains control application ID like ScanReceiver or ScanMonitor
+
+    WORD wLngHardwareID;
+    BYTE bShtHardwareID;
+    BYTE bSubsystemID;
+    BYTE bDeviceID;
+    BYTE bDeviceItemID;
+    char szDeviceItemName[MAX_DEVICE_NAME_EX]; //bDeviceItemID
+    BYTE bModuleID;			///<	Application module GID; used on of constants from recreport.h; if you cannot find appropriate ID, add your own
+
+    int	nOpAppMode;			///<	ScanReceiver app mode: WORK_MODE or TEST_MODE
+    int	nAppStatus;			///<	ScanReceiver	app status: APPSTAT_IDLE, APPSTAT_WAIT or APPSTAT_RECEIVE
+
+    /*! \brief  Status code details */
+    UINT uCodeType;			///<	Message type: CODE_INFO, CODE_INFOALARM, CODE_ALARMINFO, CODE_STOP_FAIL, CODE_SPECIAL
+    DWORD dwCode;			///<	Common message code
+    DWORD dwCodeExtension;	///<	Extented message code like GetLastError etc.
+
+    DWORD dwAddDataSize;	///<	If additional context data exists then dwAddDataSize != 0
+
+    DWORD dwAddDataChangedSize;
+    DWORD dwArrayOffset;    // can be used for arrays with non-constant len
+    BOOL  fBinaryData;		///<	If extented data are binary then TRUE or FALSE
+    DWORD dwCrc;			///<	Control summ;
+    char szName[MAX_DEVICE_NAME_EX];	///<	Station name
+    WORD wSpecialFlags;				///<	New!!! Special report flags like DEBUG_RECREPORT
+    WORD wReceiverID;
+    WORD wMyHardwareID;
+    BYTE bEmbeddedData[CMD_EMBEDDED_PARAM_LEN];
+    BYTE bEmbeddedDataLen;
+    DWORD dwReserved1[2];			///<	Reserved bytes; to align the structure
+}
+REPORTHEADER, FAR * LPREPORTHEADER;
+#pragma pack (pop)
+
+Структура телеметрии:
+
+#define SHORT_ERROR_LIST_SIZE		10U
+#define NUMBER_PDU_CHANNELS 		10
+#define NUMBER_MCUL_TYPE_LINES 		2 		//0 - Main line, 1 - Reserve line
+
+typedef struct cds_time_s
+{
+	uint16_t day; // Day part 2
+	uint32_t ms; // Milliseconds of day 4
+	uint16_t us; // Microseconds of milliseconds 2
+} cds_time_t;
+
+typedef struct tag_device_status
+{
+	cds_time_t timestamp;                   //8
+	uint8_t umode;                          //1
+	uint8_t uerrcounter;                    //1
+	uint8_t reset_counter;                  //1
+	uint8_t proto_version;                  //1
+	uint32_t op_time;                       //4
+	telemetry_temperature_t temperature;    //4
+	telemetry_power_t power;	            //8
+	last_commands_t last_commands;			//4
+} device_status_t;
+
+typedef struct pdu_short_telemetry_s
+{
+	device_status_t status;                                //32
+	uint16_t role;                                         //2  role of MCU: UNKNOWN: 0, MASTER: 1, SLAVE: 2
+	uint16_t reserve;                                      //2
+	channel_cur_volt_t channel_info[NUMBER_PDU_CHANNELS];  //40 summary current of each channel, in mA
+	pdu_lines_flags_t lines_status;                        //4  status line, ON: 1, OFF: 0
+	pdu_lines_flags_t lines_healthy;                       //4  healthy of line Healthy: 1, Unhealthy: 0
+} pdu_short_telemetry_t;
+
+typedef struct pdu_extended_telemetry_s
+{
+	pdu_short_telemetry_t tm;                                 		//84
+	ext_error_report_stamped_t errlist[SHORT_ERROR_LIST_SIZE];   	//160
+	power_channels_info_t lines_info[NUMBER_PDU_CHANNELS];    		//560
+} pdu_extended_telemetry_t;  
+
+typedef struct telemetry_temperature_s
+{
+	int8_t temperature0;
+	int8_t temperature1;
+	temperature_flags_t flags;
+	uint8_t reserved0;
+} telemetry_temperature_t;
+
+typedef struct temperature_flags_s
+{
+	uint8_t temperature0_invalid :1;
+	uint8_t temperature1_invalid :1;
+	uint8_t reserved :6;
+} temperature_flags_t;
+
+typedef struct telemetry_cur_volt_s
+{
+	int16_t current;  //2  mA
+	uint16_t voltage;  //2  mV
+	uint16_t power;    //2  mW/10 !!!
+	power_flags_t flags; //1
+	uint8_t alert_flags;  //1
+} telemetry_power_t;
+
+typedef struct power_flags_s
+{
+	uint8_t power_invalid :1;
+	uint8_t voltage_invalid :1;
+	uint8_t current_invalid :1;
+	uint8_t reserved :5;
+} power_flags_t;
+
+typedef struct last_commands_s
+{
+	uint8_t last_st;
+	uint8_t last_subst;
+	uint8_t prev_st;
+	uint8_t prev_subst;
+} last_commands_t;
+
+typedef struct channel_cur_volt_s
+{
+	uint16_t voltage;  //2  in mA
+	int16_t current;   //2  in mV
+}channel_cur_volt_t;
+
+typedef union pdu_lines_flags_u
+{
+	uint32_t i;
+	struct
+	{
+		uint32_t ch1_lineM :1;  // Main line status (1-st chan)
+		uint32_t ch1_lineR :1;  // Reserved line status (1-st chan)
+		uint32_t ch2_lineM :1;  // Main line status (2-nd chan)
+		uint32_t ch2_lineR :1;  // Reserved line status (2-nd chan)
+		uint32_t ch3_lineM :1;  // Main line status (3-rd chan)
+		uint32_t ch3_lineR :1;  // Reserved line status (3-rd chan)
+		uint32_t ch4_lineM :1;  // Main line status (4-th chan)
+		uint32_t ch4_lineR :1;  // Reserved line status (4-th chan)
+		uint32_t ch5_lineM :1;  // Main line status (5-th chan)
+		uint32_t ch5_lineR :1;  // Reserved line status (5-th chan)
+		uint32_t ch6_lineM :1;  // Main line status (6-th chan)
+		uint32_t ch6_lineR :1;  // Reserved line status (6-th chan)
+		uint32_t ch7_lineM :1;  // Main line status (7-th chan)
+		uint32_t ch7_lineR :1;  // Reserved line status (7-th chan)
+		uint32_t ch8_lineM :1;  // Main line status (8-th chan)
+		uint32_t ch8_lineR :1;  // Reserved line status (8-th chan)
+		uint32_t ch9_lineM :1;  // Main line status (9-th chan)
+		uint32_t ch9_lineR :1;  // Reserved line status (9-th chan)
+		uint32_t ch10_lineM :1;  // Main line status (10-th chan)
+		uint32_t ch10_lineR :1;  // Reserved line status (10-th chan)
+		uint32_t reserved :12;  // Not used
+	} fields;
+} pdu_lines_flags_t;
+
+typedef struct
+{
+	cds_time_t utimestamp;  		//8
+	ext_error_report_t error;		//8
+} ext_error_report_stamped_t;      	//=16
+
+typedef struct
+{
+	uint16_t error_code;   			//2
+	struct
+	{
+		uint16_t is_service_specified :1;
+		uint16_t counter :15;
+	} params;
+	error_context_u context;      	//4
+} ext_error_report_t;      			//8
+
+typedef union
+{
+	struct
+	{
+		uint8_t service;
+		uint8_t subservice;
+		uint8_t data[2];
+	} fields;
+	uint8_t bytes[4];
+	uint16_t halfword[2];
+	uint32_t dword;
+} error_context_u;

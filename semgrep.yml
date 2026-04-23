@@ -1,0 +1,61 @@
+rules:
+  - id: evt-read-whole-file-into-memory
+    message: >
+      Файл телеметрии читается в память целиком через bytearray(f.read()).
+      Для больших или специально сформированных .evt-файлов это повышает риск
+      отказа в обслуживании. Рекомендуется читать файл по частям или вводить
+      ограничение на размер входного файла.
+    severity: HIGH
+    languages: [python]
+    metadata:
+      cwe: "CWE-400: Uncontrolled Resource Consumption"
+      category: security
+      technology: [python]
+    patterns:
+      - pattern-inside: |
+          with open($PATH, 'rb') as $F:
+            ...
+      - pattern: |
+          bytearray($F.read())
+
+  - id: listdir-open-without-join
+    message: >
+      После os.listdir(directorypath) файл открывается как open(file, 'rb')
+      без os.path.join(directorypath, file). Это ослабляет контроль над путём
+      и может привести к чтению не того файла из текущего рабочего каталога.
+    severity: MEDIUM
+    languages: [python]
+    metadata:
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      category: security
+      technology: [python]
+    patterns:
+      - pattern-inside: |
+          $FILES = os.listdir($DIR)
+          ...
+          for file in $FILES:
+            ...
+            with open(file, 'rb') as $F:
+              ...
+
+  - id: evt-parser-loop-without-progress-guard
+    message: >
+      Буфер сдвигается внутри while ba на значения dwHeaderSize и dwAddDataSize
+      без явной проверки, что размеры больше нуля. При повреждённом файле это
+      может привести к зависанию цикла или отказу в обслуживании.
+    severity: HIGH
+    languages: [python]
+    metadata:
+      cwe: "CWE-835: Loop with Unreachable Exit Condition / CWE-400"
+      category: security
+      technology: [python]
+    patterns:
+      - pattern-inside: |
+          while $BUF:
+            ...
+            $HDR = parser.header_parser(..., $BUF)
+            ...
+            $BUF = $BUF[$HDR['dwHeaderSize']::]
+            ...
+            $BUF = $BUF[$HDR['dwAddDataSize']::]
+            ...

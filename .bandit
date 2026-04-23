@@ -1,0 +1,3 @@
+[bandit]
+targets = scr
+exclude = __pycache__,scr/__pycache__,.venv,venv,env,.git,build,dist
