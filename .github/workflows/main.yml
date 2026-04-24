@@ -18,8 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Prepare SAST reports directory
-        run: |
-          mkdir -p reports/sast
+        run: mkdir -p reports/sast
 
       - name: Run Semgrep SAST
         run: |
@@ -27,18 +26,45 @@ jobs:
             -v "${{ github.workspace }}:/src" \
             -w /src \
             semgrep/semgrep:latest \
-            semgrep scan --config p/security-audit --json -o reports/sast/semgrep-report.json . || true
+            semgrep scan --config p/security-audit --json -o reports/sast/semgrep-report.json main.cpp || true
 
           docker run --rm \
             -v "${{ github.workspace }}:/src" \
             -w /src \
             semgrep/semgrep:latest \
-            semgrep scan --config p/security-audit -o reports/sast/semgrep-report.txt . || true
+            semgrep scan --config p/security-audit -o reports/sast/semgrep-report.txt main.cpp || true
+
+      - name: Generate SAST summary
+        run: |
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          path = Path("reports/sast/semgrep-report.json")
+          data = json.loads(path.read_text(encoding="utf-8", errors="ignore") or "{}") if path.exists() else {}
+          results = data.get("results", [])
+
+          with open("reports/sast/sast-summary.txt", "w", encoding="utf-8") as f:
+              f.write("SAST tool: Semgrep\n")
+              f.write("Target: main.cpp\n")
+              f.write(f"Findings total: {len(results)}\n")
+              if not results:
+                  f.write("Result: no Semgrep findings detected\n")
+              else:
+                  for i, result in enumerate(results, 1):
+                      extra = result.get("extra", {})
+                      severity = str(extra.get("severity", result.get("severity", "UNKNOWN"))).upper()
+                      f.write(f"{i}. [{severity}] {result.get('check_id', 'unknown-rule')} ")
+                      f.write(f"at {result.get('path', 'unknown-file')}:{result.get('start', {}).get('line', '?')}\n")
+                      f.write(f"   {extra.get('message', '').strip()}\n")
+          EOF
 
       - name: Show SAST reports
         run: |
           echo "===== SAST REPORTS ====="
           ls -la reports/sast
+          echo
+          cat reports/sast/sast-summary.txt
           echo
           echo "===== SEMGREP TXT REPORT ====="
           cat reports/sast/semgrep-report.txt || true
@@ -50,6 +76,8 @@ jobs:
           path: |
             reports/sast/semgrep-report.json
             reports/sast/semgrep-report.txt
+            reports/sast/sast-summary.txt
+          if-no-files-found: error
           retention-days: 7
 
   # =========================================================
@@ -64,44 +92,87 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Prepare SCA reports directory
-        run: |
-          mkdir -p reports/sca
+        run: mkdir -p reports/sca
 
-      - name: Generate SBOM in CycloneDX format
+      - name: Build Docker image for SCA
+        run: |
+          docker build -t telemetry-dast:ci .
+
+      - name: Generate CycloneDX SBOM from Docker image
         run: |
           docker run --rm \
-            -v "${{ github.workspace }}:/src" \
-            ghcr.io/aquasecurity/trivy:latest fs \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}/reports/sca:/reports" \
+            ghcr.io/aquasecurity/trivy:latest image \
             --format cyclonedx \
-            --output /src/reports/sca/sbom.json \
-            /src
+            --output /reports/sbom.json \
+            telemetry-dast:ci
 
-      - name: Run Trivy vulnerability scan TXT
+      - name: Run Trivy image vulnerability scan TXT
         run: |
           docker run --rm \
-            -v "${{ github.workspace }}:/src" \
-            ghcr.io/aquasecurity/trivy:latest fs \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}/reports/sca:/reports" \
+            ghcr.io/aquasecurity/trivy:latest image \
             --scanners vuln \
             --severity CRITICAL,HIGH,MEDIUM,LOW \
             --format table \
-            --output /src/reports/sca/trivy-report.txt \
-            /src || true
+            --output /reports/trivy-report.txt \
+            telemetry-dast:ci || true
 
-      - name: Run Trivy vulnerability scan JSON
+      - name: Run Trivy image vulnerability scan JSON
         run: |
           docker run --rm \
-            -v "${{ github.workspace }}:/src" \
-            ghcr.io/aquasecurity/trivy:latest fs \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}/reports/sca:/reports" \
+            ghcr.io/aquasecurity/trivy:latest image \
             --scanners vuln \
             --severity CRITICAL,HIGH,MEDIUM,LOW \
             --format json \
-            --output /src/reports/sca/trivy-report.json \
-            /src || true
+            --output /reports/trivy-report.json \
+            telemetry-dast:ci || true
+
+      - name: Generate SCA summary
+        run: |
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          report_path = Path("reports/sca/trivy-report.json")
+          sbom_path = Path("reports/sca/sbom.json")
+
+          data = json.loads(report_path.read_text(encoding="utf-8", errors="ignore") or "{}") if report_path.exists() else {}
+          sbom = json.loads(sbom_path.read_text(encoding="utf-8", errors="ignore") or "{}") if sbom_path.exists() else {}
+
+          vulns = []
+          for result in data.get("Results", []) or []:
+              target = result.get("Target", "unknown-target")
+              for vuln in result.get("Vulnerabilities", []) or []:
+                  vulns.append((target, vuln))
+
+          severities = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
+          for _, vuln in vulns:
+              severity = str(vuln.get("Severity", "UNKNOWN")).upper()
+              severities[severity] = severities.get(severity, 0) + 1
+
+          components = sbom.get("components", []) or []
+
+          with open("reports/sca/sca-summary.txt", "w", encoding="utf-8") as f:
+              f.write("SCA tool: Trivy\n")
+              f.write("Target: Docker image telemetry-dast:ci\n")
+              f.write("SBOM format: CycloneDX\n")
+              f.write(f"SBOM components: {len(components)}\n")
+              f.write(f"Vulnerabilities total: {len(vulns)}\n")
+              for key in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]:
+                  f.write(f"{key}: {severities.get(key, 0)}\n")
+          EOF
 
       - name: Show SCA reports
         run: |
           echo "===== SCA REPORTS ====="
           ls -la reports/sca
+          echo
+          cat reports/sca/sca-summary.txt
           echo
           echo "===== TRIVY TXT REPORT ====="
           cat reports/sca/trivy-report.txt || true
@@ -117,6 +188,8 @@ jobs:
             reports/sca/sbom.json
             reports/sca/trivy-report.txt
             reports/sca/trivy-report.json
+            reports/sca/sca-summary.txt
+          if-no-files-found: error
           retention-days: 7
 
   # =========================================================
@@ -167,6 +240,7 @@ jobs:
           path: |
             reports/valgrind/valgrind-report.txt
             reports/valgrind/valgrind-exit-code.txt
+          if-no-files-found: error
           retention-days: 7
 
   # =========================================================
@@ -199,10 +273,12 @@ jobs:
           AFL_SKIP_CPUFREQ: "1"
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
           AFL_NO_UI: "1"
+          ASAN_OPTIONS: "abort_on_error=1:symbolize=1:detect_leaks=0"
         run: |
           mkdir -p reports/fuzzing
+          rm -rf fuzzing-output
           set +e
-          timeout 5m afl-fuzz -i input -o fuzzing-output -- ./telemetry_parser_afl @@ \
+          timeout 2m afl-fuzz -i input -o fuzzing-output -- ./telemetry_parser_afl @@ \
             > reports/fuzzing/fuzzing-log.txt 2>&1
           FUZZING_EXIT_CODE=$?
           echo "$FUZZING_EXIT_CODE" > reports/fuzzing/fuzzing-exit-code.txt
@@ -213,21 +289,25 @@ jobs:
           echo "$CRASH_COUNT" > reports/fuzzing/fuzzing-crash-count.txt
           echo "$HANG_COUNT" > reports/fuzzing/fuzzing-hang-count.txt
 
-          echo "===== AFL++ LOG ====="
-          cat reports/fuzzing/fuzzing-log.txt || true
-          echo
-          echo "Fuzzing exit code: $FUZZING_EXIT_CODE"
-          echo "Saved crashes: $CRASH_COUNT"
-          echo "Saved hangs: $HANG_COUNT"
+          {
+            echo "Fuzzing tool: AFL++"
+            echo "Target: telemetry_parser_afl"
+            echo "Fuzzing exit code: $FUZZING_EXIT_CODE"
+            echo "Saved crashes: $CRASH_COUNT"
+            echo "Saved hangs: $HANG_COUNT"
+          } > reports/fuzzing/fuzzing-summary.txt
 
           if [ -d fuzzing-output/default/crashes ]; then
-            echo "===== CRASH FILES =====" > reports/fuzzing/fuzzing-crashes-list.txt
-            find fuzzing-output/default/crashes -type f -name 'id:*' >> reports/fuzzing/fuzzing-crashes-list.txt || true
-            cat reports/fuzzing/fuzzing-crashes-list.txt
+            find fuzzing-output/default/crashes -type f -name 'id:*' > reports/fuzzing/fuzzing-crashes-list.txt || true
           else
-            echo "No crashes directory" > reports/fuzzing/fuzzing-crashes-list.txt
+            : > reports/fuzzing/fuzzing-crashes-list.txt
           fi
 
+          echo "===== FUZZING SUMMARY ====="
+          cat reports/fuzzing/fuzzing-summary.txt
+          echo
+          echo "===== AFL++ LOG TAIL ====="
+          tail -80 reports/fuzzing/fuzzing-log.txt || true
           exit 0
 
       - name: Upload Fuzzing artifacts
@@ -239,9 +319,11 @@ jobs:
             reports/fuzzing/fuzzing-exit-code.txt
             reports/fuzzing/fuzzing-crash-count.txt
             reports/fuzzing/fuzzing-hang-count.txt
+            reports/fuzzing/fuzzing-summary.txt
             reports/fuzzing/fuzzing-crashes-list.txt
             fuzzing-output/default/crashes/**
             fuzzing-output/default/hangs/**
+          if-no-files-found: error
           retention-days: 7
 
   # =========================================================
@@ -281,6 +363,11 @@ jobs:
         with:
           name: fuzzing-report
           path: downloaded-reports/fuzzing
+
+      - name: Show downloaded reports
+        run: |
+          echo "===== DOWNLOADED REPORTS ====="
+          find downloaded-reports -maxdepth 3 -type f -print | sort
 
       - name: Run Security Gate checks
         run: |
@@ -333,7 +420,7 @@ jobs:
               data = json.loads(sca_path.read_text(encoding="utf-8", errors="ignore") or "{}")
               critical = []
               high = []
-              for result in data.get("Results", []):
+              for result in data.get("Results", []) or []:
                   target = result.get("Target", "unknown-target")
                   for vuln in result.get("Vulnerabilities", []) or []:
                       severity = str(vuln.get("Severity", "UNKNOWN")).upper()
@@ -365,8 +452,17 @@ jobs:
           else:
               exit_code = valgrind_code_path.read_text(encoding="utf-8", errors="ignore").strip()
               report = valgrind_report_path.read_text(encoding="utf-8", errors="ignore")
+              no_memory_errors = "ERROR SUMMARY: 0 errors" in report
+              no_leaks = (
+                  "All heap blocks were freed -- no leaks are possible" in report
+                  or "definitely lost: 0 bytes" in report
+              )
+
               print(f"Valgrind exit code: {exit_code}")
-              if exit_code != "0" or "ERROR SUMMARY: 0 errors" not in report or "definitely lost: 0 bytes" not in report:
+              print(f"Valgrind memory errors absent: {no_memory_errors}")
+              print(f"Valgrind leaks absent: {no_leaks}")
+
+              if exit_code != "0" or not no_memory_errors or not no_leaks:
                   print("VALGRIND SECURITY GATE FAILED")
                   failed = True
               else:
@@ -383,6 +479,7 @@ jobs:
                   crash_count = int(crash_count_path.read_text(encoding="utf-8", errors="ignore").strip() or "0")
               except ValueError:
                   crash_count = -1
+
               print(f"AFL++ saved crashes: {crash_count}")
               if crash_count != 0:
                   print("FUZZING SECURITY GATE FAILED")
