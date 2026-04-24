@@ -273,7 +273,7 @@ jobs:
           AFL_SKIP_CPUFREQ: "1"
           AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
           AFL_NO_UI: "1"
-          ASAN_OPTIONS: "abort_on_error=1:symbolize=1:detect_leaks=0"
+          ASAN_OPTIONS: "abort_on_error=1:symbolize=0:detect_leaks=0"
         run: |
           mkdir -p reports/fuzzing
           rm -rf fuzzing-output
@@ -314,16 +314,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fuzzing-report
-          path: |
-            reports/fuzzing/fuzzing-log.txt
-            reports/fuzzing/fuzzing-exit-code.txt
-            reports/fuzzing/fuzzing-crash-count.txt
-            reports/fuzzing/fuzzing-hang-count.txt
-            reports/fuzzing/fuzzing-summary.txt
-            reports/fuzzing/fuzzing-crashes-list.txt
-            fuzzing-output/default/crashes/**
-            fuzzing-output/default/hangs/**
+          path: reports/fuzzing/*
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload AFL++ raw output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzzing-raw-output
+          path: fuzzing-output
+          if-no-files-found: ignore
           retention-days: 7
 
   # =========================================================
@@ -470,18 +471,51 @@ jobs:
               print()
 
           # ---------- Fuzzing ----------
-          crash_count_path = Path("downloaded-reports/fuzzing/fuzzing-crash-count.txt")
-          if not crash_count_path.exists():
+          fuzzing_dir = Path("downloaded-reports/fuzzing")
+
+          crash_count_matches = list(fuzzing_dir.rglob("fuzzing-crash-count.txt"))
+          exit_code_matches = list(fuzzing_dir.rglob("fuzzing-exit-code.txt"))
+          log_matches = list(fuzzing_dir.rglob("fuzzing-log.txt"))
+
+          if not crash_count_matches:
               print("FUZZING SECURITY GATE FAILED: fuzzing-crash-count.txt not found")
+              print("Downloaded fuzzing files:")
+              for file in sorted(fuzzing_dir.rglob("*")):
+                  if file.is_file():
+                      print(f"- {file}")
               failed = True
           else:
+              crash_count_path = crash_count_matches[0]
               try:
                   crash_count = int(crash_count_path.read_text(encoding="utf-8", errors="ignore").strip() or "0")
               except ValueError:
                   crash_count = -1
 
+              fuzzing_exit_code = "unknown"
+              if exit_code_matches:
+                  fuzzing_exit_code = exit_code_matches[0].read_text(encoding="utf-8", errors="ignore").strip()
+
+              fuzzing_log = ""
+              if log_matches:
+                  fuzzing_log = log_matches[0].read_text(encoding="utf-8", errors="ignore")
+
+              fuzzing_aborted = "PROGRAM ABORT" in fuzzing_log
+
+              print(f"AFL++ report path: {crash_count_path}")
+              print(f"AFL++ exit code: {fuzzing_exit_code}")
               print(f"AFL++ saved crashes: {crash_count}")
-              if crash_count != 0:
+              print(f"AFL++ internal abort detected: {fuzzing_aborted}")
+
+              # timeout returns 124 when the fixed fuzzing time expires.
+              acceptable_exit_codes = {"0", "124"}
+
+              if fuzzing_aborted:
+                  print("FUZZING SECURITY GATE FAILED: AFL++ aborted before fuzzing started")
+                  failed = True
+              elif fuzzing_exit_code not in acceptable_exit_codes:
+                  print("FUZZING SECURITY GATE FAILED: unexpected AFL++ exit code")
+                  failed = True
+              elif crash_count != 0:
                   print("FUZZING SECURITY GATE FAILED")
                   failed = True
               else:
