@@ -1,4 +1,4 @@
-name: SAST Security Pipeline
+name: Security Pipeline
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # =========================================================
+  # 1. SAST
+  # =========================================================
   sast:
     name: SAST Analysis
     runs-on: ubuntu-latest
@@ -90,40 +93,139 @@ jobs:
             reports/semgrep.log
           retention-days: 7
 
+  # =========================================================
+  # 2. SCA: CycloneDX SBOM + Trivy vulnerability analysis
+  # =========================================================
+  sca:
+    name: SCA Analysis
+    runs-on: ubuntu-latest
+    needs: sast
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare SCA reports directory
+        run: |
+          mkdir -p sca-reports
+
+      - name: Generate SBOM in CycloneDX format
+        run: |
+          echo "===== GENERATE SBOM: CycloneDX ====="
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            ghcr.io/aquasecurity/trivy:latest fs \
+            --format cyclonedx \
+            --output /src/sca-reports/sbom.json \
+            /src
+
+      - name: Run Trivy vulnerability scan TXT
+        run: |
+          echo "===== TRIVY VULNERABILITY SCAN: TXT ====="
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            ghcr.io/aquasecurity/trivy:latest fs \
+            --scanners vuln \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            --format table \
+            --output /src/sca-reports/trivy_report.txt \
+            /src
+
+      - name: Run Trivy vulnerability scan JSON
+        run: |
+          echo "===== TRIVY VULNERABILITY SCAN: JSON ====="
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            ghcr.io/aquasecurity/trivy:latest fs \
+            --scanners vuln \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            --format json \
+            --output /src/sca-reports/trivy_report.json \
+            /src
+
+      - name: Show SCA reports
+        run: |
+          echo "===== SCA REPORTS DIRECTORY ====="
+          ls -la sca-reports
+          echo
+          echo "===== TRIVY REPORT TXT ====="
+          cat sca-reports/trivy_report.txt || true
+          echo
+          echo "===== SBOM HEAD ====="
+          head -40 sca-reports/sbom.json || true
+
+      - name: Upload SCA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-report
+          path: |
+            sca-reports/sbom.json
+            sca-reports/trivy_report.txt
+            sca-reports/trivy_report.json
+          retention-days: 7
+
+  # =========================================================
+  # Optional: artifact check
+  # =========================================================
   download_artifacts:
     name: Download Artifacts
     runs-on: ubuntu-latest
-    needs: sast
+    needs:
+      - sast
+      - sca
 
     steps:
       - name: Download SAST artifacts
         uses: actions/download-artifact@v4
         with:
           name: sast-report
-          path: downloaded-reports
+          path: downloaded-reports/sast
+
+      - name: Download SCA artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sca-report
+          path: downloaded-reports/sca
 
       - name: Show downloaded files
         run: |
-          echo "===== DOWNLOADED ARTIFACTS ====="
-          ls -la downloaded-reports
+          echo "===== DOWNLOADED SAST ARTIFACTS ====="
+          ls -la downloaded-reports/sast
+          echo
+          echo "===== DOWNLOADED SCA ARTIFACTS ====="
+          ls -la downloaded-reports/sca
           echo
           echo "===== semgrep-report.txt ====="
-          cat downloaded-reports/semgrep-report.txt || true
+          cat downloaded-reports/sast/semgrep-report.txt || true
           echo
           echo "===== bandit-report.txt ====="
-          cat downloaded-reports/bandit-report.txt || true
+          cat downloaded-reports/sast/bandit-report.txt || true
+          echo
+          echo "===== trivy_report.txt ====="
+          cat downloaded-reports/sca/trivy_report.txt || true
 
+  # =========================================================
+  # 3. Security Gate: SAST + SCA checks
+  # =========================================================
   security_gate:
     name: Security Gate
     runs-on: ubuntu-latest
-    needs: sast
+    needs:
+      - sast
+      - sca
 
     steps:
       - name: Download SAST artifacts
         uses: actions/download-artifact@v4
         with:
           name: sast-report
-          path: downloaded-reports
+          path: downloaded-reports/sast
+
+      - name: Download SCA artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sca-report
+          path: downloaded-reports/sca
 
       - name: Check Semgrep JSON report
         run: |
@@ -132,7 +234,7 @@ jobs:
           import sys
           from pathlib import Path
 
-          report_path = Path("downloaded-reports/semgrep-report.json")
+          report_path = Path("downloaded-reports/sast/semgrep-report.json")
 
           if not report_path.exists():
               print("SECURITY GATE FAILED: semgrep-report.json not found")
@@ -156,19 +258,87 @@ jobs:
                       "message": extra.get("message", "").strip()
                   })
 
-          print("Security Gate policy:")
-          print("- block pipeline if HIGH or CRITICAL findings are present")
+          print("SAST Security Gate policy:")
+          print("- block pipeline if HIGH, CRITICAL or ERROR Semgrep findings are present")
           print()
 
           if blocking:
-              print("Detected blocking findings:")
+              print("Detected blocking SAST findings:")
               for item in blocking:
                   print(f"- [{item['severity']}] {item['rule_id']} at {item['file']}:{item['line']}")
                   print(f"  {item['message']}")
               print()
-              print("SECURITY GATE FAILED")
+              print("SAST SECURITY GATE FAILED")
               sys.exit(1)
 
-          print("No blocking HIGH/CRITICAL findings detected")
-          print("SECURITY GATE PASSED")
+          print("No blocking HIGH/CRITICAL/ERROR Semgrep findings detected")
+          print("SAST SECURITY GATE PASSED")
+          EOF
+
+      - name: Check Trivy JSON report
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          from pathlib import Path
+
+          report_path = Path("downloaded-reports/sca/trivy_report.json")
+
+          if not report_path.exists():
+              print("SECURITY GATE FAILED: trivy_report.json not found")
+              sys.exit(1)
+
+          data = json.loads(report_path.read_text(encoding="utf-8", errors="ignore"))
+
+          vulnerabilities = []
+          for result in data.get("Results", []):
+              target = result.get("Target", "unknown-target")
+              for vuln in result.get("Vulnerabilities", []) or []:
+                  vulnerabilities.append({
+                      "target": target,
+                      "id": vuln.get("VulnerabilityID", "unknown-cve"),
+                      "pkg": vuln.get("PkgName", "unknown-package"),
+                      "installed": vuln.get("InstalledVersion", "unknown-version"),
+                      "fixed": vuln.get("FixedVersion", ""),
+                      "severity": str(vuln.get("Severity", "UNKNOWN")).upper(),
+                      "title": vuln.get("Title", "").strip()
+                  })
+
+          critical = [v for v in vulnerabilities if v["severity"] == "CRITICAL"]
+          high = [v for v in vulnerabilities if v["severity"] == "HIGH"]
+          medium = [v for v in vulnerabilities if v["severity"] == "MEDIUM"]
+          low = [v for v in vulnerabilities if v["severity"] == "LOW"]
+
+          print("SCA Security Gate policy:")
+          print("- block pipeline if CRITICAL vulnerabilities are present")
+          print("- warn on HIGH and MEDIUM vulnerabilities")
+          print()
+          print(f"CRITICAL: {len(critical)}")
+          print(f"HIGH: {len(high)}")
+          print(f"MEDIUM: {len(medium)}")
+          print(f"LOW: {len(low)}")
+          print()
+
+          if high:
+              print("HIGH vulnerabilities:")
+              for item in high:
+                  print(f"- {item['id']} ({item['pkg']} {item['installed']}) [{item['severity']}]")
+                  if item["fixed"]:
+                      print(f"  Fixed version: {item['fixed']}")
+                  print(f"  {item['title']}")
+              print()
+
+          if critical:
+              print("Detected blocking CRITICAL vulnerabilities:")
+              for item in critical:
+                  print(f"- {item['id']} ({item['pkg']} {item['installed']}) [{item['severity']}]")
+                  if item["fixed"]:
+                      print(f"  Fixed version: {item['fixed']}")
+                  print(f"  {item['title']}")
+              print()
+              print("SCA SECURITY GATE FAILED")
+              sys.exit(1)
+
+          print("No blocking CRITICAL vulnerabilities detected")
+          print("SCA SECURITY GATE PASSED")
           EOF

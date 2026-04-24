@@ -1,0 +1,135 @@
+
+Report Summary
+
+┌──────────────────┬──────┬─────────────────┐
+│      Target      │ Type │ Vulnerabilities │
+├──────────────────┼──────┼─────────────────┤
+│ requirements.txt │ pip  │       33        │
+└──────────────────┴──────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+requirements.txt (pip)
+======================
+Total: 33 (LOW: 1, MEDIUM: 10, HIGH: 14, CRITICAL: 8)
+
+┌─────────┬─────────────────────┬──────────┬────────┬───────────────────┬────────────────────────┬──────────────────────────────────────────────────────────────┐
+│ Library │    Vulnerability    │ Severity │ Status │ Installed Version │     Fixed Version      │                            Title                             │
+├─────────┼─────────────────────┼──────────┼────────┼───────────────────┼────────────────────────┼──────────────────────────────────────────────────────────────┤
+│ Pillow  │ CVE-2021-34552      │ CRITICAL │ fixed  │ 8.2.0             │ 8.3.0                  │ python-pillow: Buffer overflow in image convert function     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-34552                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2022-22817      │          │        │                   │ 9.0.1                  │ python-pillow: PIL.ImageMath.eval allows evaluation of       │
+│         │                     │          │        │                   │                        │ arbitrary expressions                                        │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2022-22817                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2023-50447      │          │        │                   │ 10.2.0                 │ pillow: Arbitrary Code Execution via the environment         │
+│         │                     │          │        │                   │                        │ parameter                                                    │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2023-50447                   │
+│         ├─────────────────────┼──────────┤        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-23437      │ HIGH     │        │                   │ 8.3.2                  │ python-pillow: possible ReDoS via the getrgb function        │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-23437                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2022-24303      │          │        │                   │ 9.0.1                  │ python-pillow: temporary directory with a space character    │
+│         │                     │          │        │                   │                        │ allows removal of unrelated file...                          │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2022-24303                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2022-45198      │          │        │                   │ 9.2.0                  │ Pillow before 9.2.0 performs Improper Handling of Highly     │
+│         │                     │          │        │                   │                        │ Compressed GI ...                                            │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2022-45198                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2023-44271      │          │        │                   │ 10.0.0                 │ python-pillow: uncontrolled resource consumption when        │
+│         │                     │          │        │                   │                        │ textlength in an ImageDraw instance operates on...           │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2023-44271                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2023-4863       │          │        │                   │ 10.0.1                 │ libwebp: Heap buffer overflow in WebP Codec                  │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2023-4863                    │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2024-28219      │          │        │                   │ 10.3.0                 │ python-pillow: buffer overflow in _imagingcms.c              │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2024-28219                   │
+│         ├─────────────────────┼──────────┤        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2022-22815      │ MEDIUM   │        │                   │ 9.0.0                  │ python-pillow: improperly initializes ImagePath.Path in      │
+│         │                     │          │        │                   │                        │ path_getbbox() in path.c                                     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2022-22815                   │
+│         ├─────────────────────┤          │        │                   │                        ├──────────────────────────────────────────────────────────────┤
+│         │ CVE-2022-22816      │          │        │                   │                        │ python-pillow: buffer over-read during initialization of     │
+│         │                     │          │        │                   │                        │ ImagePath.Path in path_getbbox() in path.c                   │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2022-22816                   │
+│         ├─────────────────────┼──────────┤        │                   │                        ├──────────────────────────────────────────────────────────────┤
+│         │ GHSA-4fx9-vc88-q2xc │ LOW      │        │                   │                        │ Infinite loop in Pillow                                      │
+│         │                     │          │        │                   │                        │ https://github.com/advisories/GHSA-4fx9-vc88-q2xc            │
+├─────────┼─────────────────────┼──────────┤        ├───────────────────┼────────────────────────┼──────────────────────────────────────────────────────────────┤
+│ PyYAML  │ CVE-2020-14343      │ CRITICAL │        │ 5.3.1             │ 5.4                    │ PyYAML: incomplete fix for CVE-2020-1747                     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-14343                   │
+├─────────┼─────────────────────┤          │        ├───────────────────┼────────────────────────┼──────────────────────────────────────────────────────────────┤
+│ django  │ CVE-2019-19844      │          │        │ 3.0               │ 1.11.27, 2.2.9, 3.0.1  │ Django: crafted email address allows account takeover        │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2019-19844                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2020-7471       │          │        │                   │ 1.11.28, 2.2.10, 3.0.3 │ django: potential SQL injection via StringAgg(delimiter)     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-7471                    │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-35042      │          │        │                   │ 3.2.5, 3.1.13          │ django: potential SQL injection via unsanitized              │
+│         │                     │          │        │                   │                        │ QuerySet.order_by() input                                    │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-35042                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2025-64459      │          │        │                   │ 5.2.8, 5.1.14, 4.2.26  │ django: Django SQL injection                                 │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2025-64459                   │
+│         ├─────────────────────┼──────────┤        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2020-13254      │ HIGH     │        │                   │ 2.2.13, 3.0.7          │ django: potential data leakage via malformed memcached keys  │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-13254                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2020-24583      │          │        │                   │ 2.2.16, 3.0.10, 3.1.1  │ django: incorrect permissions on intermediate-level          │
+│         │                     │          │        │                   │                        │ directories on Python 3.7+                                   │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-24583                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2020-9402       │          │        │                   │ 1.11.29, 2.2.11, 3.0.4 │ django: potential SQL injection via "tolerance" parameter in │
+│         │                     │          │        │                   │                        │ GIS functions and aggregates...                              │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-9402                    │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-31542      │          │        │                   │ 2.2.21, 3.1.9, 3.2.1   │ django: Potential directory-traversal via uploaded files     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-31542                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-33571      │          │        │                   │ 2.2.24, 3.1.12, 3.2.4  │ django: Possible indeterminate SSRF, RFI, and LFI attacks    │
+│         │                     │          │        │                   │                        │ since validators accepted leading...                         │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-33571                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2022-36359      │          │        │                   │ 3.2.15, 4.0.7          │ An issue was discovered in the HTTP FileResponse class in    │
+│         │                     │          │        │                   │                        │ Django 3.2...                                                │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2022-36359                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2025-57833      │          │        │                   │ 4.2.24, 5.1.12, 5.2.6  │ django: Django SQL injection in FilteredRelation column      │
+│         │                     │          │        │                   │                        │ aliases                                                      │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2025-57833                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2025-64458      │          │        │                   │ 5.2.8, 5.1.14, 4.2.26  │ Django: Denial-of-service vulnerability in Django on Windows │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2025-64458                   │
+│         ├─────────────────────┼──────────┤        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2020-13596      │ MEDIUM   │        │                   │ 2.2.13, 3.0.7          │ django: possible XSS via admin ForeignKeyRawIdWidget         │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-13596                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2020-24584      │          │        │                   │ 2.2.16, 3.0.10, 3.1.1  │ django: permission escalation in intermediate-level          │
+│         │                     │          │        │                   │                        │ directories of the file system cache on...                   │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2020-24584                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-28658      │          │        │                   │ 2.2.20, 3.0.14, 3.1.8  │ django: potential directory-traversal via uploaded files     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-28658                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-3281       │          │        │                   │ 2.2.18, 3.1.6, 3.0.12  │ django: Potential directory-traversal via archive.extract()  │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-3281                    │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-33203      │          │        │                   │ 2.2.24, 3.1.12, 3.2.4  │ django: Potential directory traversal via ``admindocs``      │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-33203                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2021-44420      │          │        │                   │ 2.2.25, 3.1.14, 3.2.10 │ django: potential bypass of an upstream access control based │
+│         │                     │          │        │                   │                        │ on URL paths...                                              │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2021-44420                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2024-45231      │          │        │                   │ 5.1.1, 5.0.9, 4.2.16   │ python-django: Potential user email enumeration via response │
+│         │                     │          │        │                   │                        │ status on password reset                                     │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2024-45231                   │
+│         ├─────────────────────┤          │        │                   ├────────────────────────┼──────────────────────────────────────────────────────────────┤
+│         │ CVE-2025-48432      │          │        │                   │ 5.2.2, 5.1.10, 4.2.22  │ django: Django Path Injection Vulnerability                  │
+│         │                     │          │        │                   │                        │ https://avd.aquasec.com/nvd/cve-2025-48432                   │
+└─────────┴─────────────────────┴──────────┴────────┴───────────────────┴────────────────────────┴──────────────────────────────────────────────────────────────┘
