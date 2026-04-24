@@ -1,31 +1,82 @@
+# Build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# Project binaries
+telemetry_parser
+telemetry_parser.exe
+telemetry_parser_buggy
+telemetry_parser_buggy.exe
+telemetry_parser_afl
+telemetry_parser_afl.exe
+fuzz_target
+fuzz_target.exe
+
+# CMake
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Generated test files
+#input/
+#*.evt
+
+# AFL++ output
+output/
+afl-output*/
+fuzzing-output/
+crashes/
+hangs/
+queue/
+default/
+
+# Valgrind output
+valgrind*.log
+valgrind-report.txt
+*.vglog
+
+# Security reports
+reports/
+semgrep-report.json
+trivy-report.json
+sbom.json
+cyclonedx.json
+*.sarif
+
 # Python cache
 __pycache__/
-*/__pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environments
-.venv/
-venv/
-env/
+# Docker temporary files
+.docker/
+docker-compose.override.yml
 
-# Build / dist
-build/
-dist/
-*.egg-info/
-
-# Local reports
-bandit-report.txt
-sast-report.txt
-semgrep-report.txt
-*.log
-
-# Large telemetry / binary files
-*.evt
-*.exe
-
-# IDE / OS
+# IDE files
 .vscode/
 .idea/
+*.iml
+
+# OS files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# MSYS2 / Windows temporary files
+*.stackdump
+*.tmp
+*.bak
+*.swp
+*~
