@@ -1,4 +1,4 @@
-name: SAST Security Pipeline
+name: Security Pipeline
 
 on:
   push:
@@ -6,169 +6,394 @@ on:
   workflow_dispatch:
 
 jobs:
+  # =========================================================
+  # 1. SAST
+  # =========================================================
   sast:
-    name: SAST Analysis
+    name: SAST Analyz
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build SAST Docker image
+      - name: Prepare SAST reports directory
         run: |
-          docker build -t int-public-sast .
+          mkdir -p reports/sast
 
-      - name: Prepare reports directory
-        run: |
-          mkdir -p reports
-
-      - name: Run SAST tools and save reports
+      - name: Run Semgrep SAST
         run: |
           docker run --rm \
-            -v "${{ github.workspace }}/reports:/out" \
-            int-public-sast sh -c "
-              bandit --ini /app/.bandit -r /app/scr > /out/bandit-report.txt 2>&1 || true
-              semgrep scan --config /app/semgrep.yml /app/scr > /out/semgrep-report.txt 2>/out/semgrep.log || true
-              semgrep scan --config /app/semgrep.yml --json -o /out/semgrep-report.json /app/scr || true
-            "
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            semgrep/semgrep:latest \
+            semgrep scan --config p/security-audit --json -o reports/sast/semgrep-report.json . || true
 
-      - name: Show generated files
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            semgrep/semgrep:latest \
+            semgrep scan --config p/security-audit -o reports/sast/semgrep-report.txt . || true
+
+      - name: Show SAST reports
         run: |
-          echo "===== REPORTS DIRECTORY ====="
-          ls -la reports
+          echo "===== SAST REPORTS ====="
+          ls -la reports/sast
           echo
-          echo "===== BANDIT REPORT ====="
-          cat reports/bandit-report.txt || true
-          echo
-          echo "===== SEMGREP REPORT ====="
-          cat reports/semgrep-report.txt || true
-          echo
-          echo "===== SEMGREP LOG ====="
-          cat reports/semgrep.log || true
-
-      - name: Show Semgrep findings summary
-        run: |
-          python3 << 'EOF'
-          import json
-          from pathlib import Path
-
-          path = Path("reports/semgrep-report.json")
-          if not path.exists():
-              print("semgrep-report.json not found")
-              raise SystemExit(1)
-
-          data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
-          results = data.get("results", [])
-
-          print("===== SEMGREP FINDINGS SUMMARY =====")
-          if not results:
-              print("No Semgrep findings detected")
-              raise SystemExit(0)
-
-          for i, result in enumerate(results, 1):
-              rule_id = result.get("check_id", "unknown-rule")
-              path_ = result.get("path", "unknown-file")
-              line = result.get("start", {}).get("line", "?")
-              extra = result.get("extra", {})
-              severity = str(extra.get("severity", result.get("severity", "UNKNOWN"))).upper()
-              message = extra.get("message", "").strip()
-
-              print(f"{i}. [{severity}] {rule_id}")
-              print(f"   File: {path_}:{line}")
-              print(f"   Message: {message}")
-              print()
-          EOF
+          echo "===== SEMGREP TXT REPORT ====="
+          cat reports/sast/semgrep-report.txt || true
 
       - name: Upload SAST artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sast-report
           path: |
-            reports/bandit-report.txt
-            reports/semgrep-report.txt
-            reports/semgrep-report.json
-            reports/semgrep.log
+            reports/sast/semgrep-report.json
+            reports/sast/semgrep-report.txt
           retention-days: 7
 
-  download_artifacts:
-    name: Download Artifacts
+  # =========================================================
+  # 2. SCA: CycloneDX SBOM + Trivy vulnerability analysis
+  # =========================================================
+  sca:
+    name: SCA Analyz
     runs-on: ubuntu-latest
-    needs: sast
 
     steps:
-      - name: Download SAST artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: sast-report
-          path: downloaded-reports
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Show downloaded files
+      - name: Prepare SCA reports directory
         run: |
-          echo "===== DOWNLOADED ARTIFACTS ====="
-          ls -la downloaded-reports
-          echo
-          echo "===== semgrep-report.txt ====="
-          cat downloaded-reports/semgrep-report.txt || true
-          echo
-          echo "===== bandit-report.txt ====="
-          cat downloaded-reports/bandit-report.txt || true
+          mkdir -p reports/sca
 
+      - name: Generate SBOM in CycloneDX format
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            ghcr.io/aquasecurity/trivy:latest fs \
+            --format cyclonedx \
+            --output /src/reports/sca/sbom.json \
+            /src
+
+      - name: Run Trivy vulnerability scan TXT
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            ghcr.io/aquasecurity/trivy:latest fs \
+            --scanners vuln \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            --format table \
+            --output /src/reports/sca/trivy-report.txt \
+            /src || true
+
+      - name: Run Trivy vulnerability scan JSON
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            ghcr.io/aquasecurity/trivy:latest fs \
+            --scanners vuln \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            --format json \
+            --output /src/reports/sca/trivy-report.json \
+            /src || true
+
+      - name: Show SCA reports
+        run: |
+          echo "===== SCA REPORTS ====="
+          ls -la reports/sca
+          echo
+          echo "===== TRIVY TXT REPORT ====="
+          cat reports/sca/trivy-report.txt || true
+          echo
+          echo "===== SBOM HEAD ====="
+          head -40 reports/sca/sbom.json || true
+
+      - name: Upload SCA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-report
+          path: |
+            reports/sca/sbom.json
+            reports/sca/trivy-report.txt
+            reports/sca/trivy-report.json
+          retention-days: 7
+
+  # =========================================================
+  # 3. Valgrind dynamic analysis
+  # =========================================================
+  valgrind:
+    name: Valgrind Analyz
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools and Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ valgrind python3
+
+      - name: Prepare input files
+        run: |
+          python3 generate_samples.py
+          ls -la input
+
+      - name: Build application for Valgrind
+        run: |
+          g++ -std=c++17 -g -O0 -Wall -Wextra main.cpp -o telemetry_parser
+
+      - name: Run Valgrind analysis
+        run: |
+          mkdir -p reports/valgrind
+          set +e
+          valgrind \
+            --leak-check=full \
+            --track-origins=yes \
+            --error-exitcode=1 \
+            ./telemetry_parser input/valid.evt \
+            > reports/valgrind/valgrind-report.txt 2>&1
+          VALGRIND_EXIT_CODE=$?
+          echo "$VALGRIND_EXIT_CODE" > reports/valgrind/valgrind-exit-code.txt
+          cat reports/valgrind/valgrind-report.txt
+          echo "Valgrind exit code: $VALGRIND_EXIT_CODE"
+          exit 0
+
+      - name: Upload Valgrind artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: valgrind-report
+          path: |
+            reports/valgrind/valgrind-report.txt
+            reports/valgrind/valgrind-exit-code.txt
+          retention-days: 7
+
+  # =========================================================
+  # 4. AFL++ fuzzing
+  # =========================================================
+  fuzzing:
+    name: Fuzzing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install AFL++ and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ clang afl++ python3
+
+      - name: Prepare input corpus
+        run: |
+          python3 generate_samples.py
+          ls -la input
+
+      - name: Build AFL++ instrumented binary
+        run: |
+          afl-clang++ -std=c++17 -g -O0 -fsanitize=address main.cpp -o telemetry_parser_afl
+
+      - name: Run AFL++ fuzzing
+        env:
+          AFL_SKIP_CPUFREQ: "1"
+          AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+          AFL_NO_UI: "1"
+        run: |
+          mkdir -p reports/fuzzing
+          set +e
+          timeout 5m afl-fuzz -i input -o fuzzing-output -- ./telemetry_parser_afl @@ \
+            > reports/fuzzing/fuzzing-log.txt 2>&1
+          FUZZING_EXIT_CODE=$?
+          echo "$FUZZING_EXIT_CODE" > reports/fuzzing/fuzzing-exit-code.txt
+
+          CRASH_COUNT=$(find fuzzing-output/default/crashes -type f -name 'id:*' 2>/dev/null | wc -l | tr -d ' ')
+          HANG_COUNT=$(find fuzzing-output/default/hangs -type f -name 'id:*' 2>/dev/null | wc -l | tr -d ' ')
+
+          echo "$CRASH_COUNT" > reports/fuzzing/fuzzing-crash-count.txt
+          echo "$HANG_COUNT" > reports/fuzzing/fuzzing-hang-count.txt
+
+          echo "===== AFL++ LOG ====="
+          cat reports/fuzzing/fuzzing-log.txt || true
+          echo
+          echo "Fuzzing exit code: $FUZZING_EXIT_CODE"
+          echo "Saved crashes: $CRASH_COUNT"
+          echo "Saved hangs: $HANG_COUNT"
+
+          if [ -d fuzzing-output/default/crashes ]; then
+            echo "===== CRASH FILES =====" > reports/fuzzing/fuzzing-crashes-list.txt
+            find fuzzing-output/default/crashes -type f -name 'id:*' >> reports/fuzzing/fuzzing-crashes-list.txt || true
+            cat reports/fuzzing/fuzzing-crashes-list.txt
+          else
+            echo "No crashes directory" > reports/fuzzing/fuzzing-crashes-list.txt
+          fi
+
+          exit 0
+
+      - name: Upload Fuzzing artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzzing-report
+          path: |
+            reports/fuzzing/fuzzing-log.txt
+            reports/fuzzing/fuzzing-exit-code.txt
+            reports/fuzzing/fuzzing-crash-count.txt
+            reports/fuzzing/fuzzing-hang-count.txt
+            reports/fuzzing/fuzzing-crashes-list.txt
+            fuzzing-output/default/crashes/**
+            fuzzing-output/default/hangs/**
+          retention-days: 7
+
+  # =========================================================
+  # 5. Security Gate: SAST + SCA + Valgrind + Fuzzing
+  # =========================================================
   security_gate:
     name: Security Gate
     runs-on: ubuntu-latest
-    needs: sast
+    needs:
+      - sast
+      - sca
+      - valgrind
+      - fuzzing
+    if: always()
 
     steps:
       - name: Download SAST artifacts
         uses: actions/download-artifact@v4
         with:
           name: sast-report
-          path: downloaded-reports
+          path: downloaded-reports/sast
 
-      - name: Check Semgrep JSON report
+      - name: Download SCA artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sca-report
+          path: downloaded-reports/sca
+
+      - name: Download Valgrind artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: valgrind-report
+          path: downloaded-reports/valgrind
+
+      - name: Download Fuzzing artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fuzzing-report
+          path: downloaded-reports/fuzzing
+
+      - name: Run Security Gate checks
         run: |
           python3 << 'EOF'
           import json
           import sys
           from pathlib import Path
 
-          report_path = Path("downloaded-reports/semgrep-report.json")
+          failed = False
 
-          if not report_path.exists():
-              print("SECURITY GATE FAILED: semgrep-report.json not found")
-              sys.exit(1)
-
-          data = json.loads(report_path.read_text(encoding="utf-8", errors="ignore"))
-          results = data.get("results", [])
-
-          blocking = []
-
-          for result in results:
-              extra = result.get("extra", {})
-              severity = str(extra.get("severity", result.get("severity", "UNKNOWN"))).upper()
-
-              if severity in {"HIGH", "CRITICAL", "ERROR"}:
-                  blocking.append({
-                      "rule_id": result.get("check_id", "unknown-rule"),
-                      "file": result.get("path", "unknown-file"),
-                      "line": result.get("start", {}).get("line", "?"),
-                      "severity": severity,
-                      "message": extra.get("message", "").strip()
-                  })
-
-          print("Security Gate policy:")
-          print("- block pipeline if HIGH or CRITICAL findings are present")
+          print("===== SECURITY GATE POLICY =====")
+          print("1. SAST: block if HIGH, CRITICAL or ERROR Semgrep findings are present")
+          print("2. SCA: block if CRITICAL Trivy vulnerabilities are present")
+          print("3. Valgrind: block if Valgrind exit code is not 0 or memory errors are detected")
+          print("4. Fuzzing: block if AFL++ saved crashes are present")
           print()
 
-          if blocking:
-              print("Detected blocking findings:")
-              for item in blocking:
-                  print(f"- [{item['severity']}] {item['rule_id']} at {item['file']}:{item['line']}")
-                  print(f"  {item['message']}")
+          # ---------- SAST ----------
+          sast_path = Path("downloaded-reports/sast/semgrep-report.json")
+          if not sast_path.exists():
+              print("SAST SECURITY GATE FAILED: semgrep-report.json not found")
+              failed = True
+          else:
+              data = json.loads(sast_path.read_text(encoding="utf-8", errors="ignore") or "{}")
+              results = data.get("results", [])
+              blocking = []
+              for result in results:
+                  extra = result.get("extra", {})
+                  severity = str(extra.get("severity", result.get("severity", "UNKNOWN"))).upper()
+                  if severity in {"HIGH", "CRITICAL", "ERROR"}:
+                      blocking.append(result)
+
+              print(f"SAST blocking findings: {len(blocking)}")
+              if blocking:
+                  for item in blocking:
+                      extra = item.get("extra", {})
+                      print(f"- {item.get('check_id', 'unknown-rule')} at {item.get('path', 'unknown-file')}:{item.get('start', {}).get('line', '?')}")
+                      print(f"  {extra.get('message', '').strip()}")
+                  failed = True
+              else:
+                  print("SAST SECURITY GATE PASSED")
               print()
-              print("SECURITY GATE FAILED")
+
+          # ---------- SCA ----------
+          sca_path = Path("downloaded-reports/sca/trivy-report.json")
+          if not sca_path.exists():
+              print("SCA SECURITY GATE FAILED: trivy-report.json not found")
+              failed = True
+          else:
+              data = json.loads(sca_path.read_text(encoding="utf-8", errors="ignore") or "{}")
+              critical = []
+              high = []
+              for result in data.get("Results", []):
+                  target = result.get("Target", "unknown-target")
+                  for vuln in result.get("Vulnerabilities", []) or []:
+                      severity = str(vuln.get("Severity", "UNKNOWN")).upper()
+                      item = (target, vuln)
+                      if severity == "CRITICAL":
+                          critical.append(item)
+                      elif severity == "HIGH":
+                          high.append(item)
+
+              print(f"SCA CRITICAL vulnerabilities: {len(critical)}")
+              print(f"SCA HIGH vulnerabilities: {len(high)}")
+              if critical:
+                  for target, vuln in critical:
+                      print(f"- {vuln.get('VulnerabilityID', 'unknown-cve')} in {target}: {vuln.get('PkgName', 'unknown-package')} {vuln.get('InstalledVersion', '')}")
+                      fixed = vuln.get("FixedVersion", "")
+                      if fixed:
+                          print(f"  Fixed version: {fixed}")
+                  failed = True
+              else:
+                  print("SCA SECURITY GATE PASSED")
+              print()
+
+          # ---------- Valgrind ----------
+          valgrind_code_path = Path("downloaded-reports/valgrind/valgrind-exit-code.txt")
+          valgrind_report_path = Path("downloaded-reports/valgrind/valgrind-report.txt")
+          if not valgrind_code_path.exists() or not valgrind_report_path.exists():
+              print("VALGRIND SECURITY GATE FAILED: Valgrind report files not found")
+              failed = True
+          else:
+              exit_code = valgrind_code_path.read_text(encoding="utf-8", errors="ignore").strip()
+              report = valgrind_report_path.read_text(encoding="utf-8", errors="ignore")
+              print(f"Valgrind exit code: {exit_code}")
+              if exit_code != "0" or "ERROR SUMMARY: 0 errors" not in report or "definitely lost: 0 bytes" not in report:
+                  print("VALGRIND SECURITY GATE FAILED")
+                  failed = True
+              else:
+                  print("VALGRIND SECURITY GATE PASSED")
+              print()
+
+          # ---------- Fuzzing ----------
+          crash_count_path = Path("downloaded-reports/fuzzing/fuzzing-crash-count.txt")
+          if not crash_count_path.exists():
+              print("FUZZING SECURITY GATE FAILED: fuzzing-crash-count.txt not found")
+              failed = True
+          else:
+              try:
+                  crash_count = int(crash_count_path.read_text(encoding="utf-8", errors="ignore").strip() or "0")
+              except ValueError:
+                  crash_count = -1
+              print(f"AFL++ saved crashes: {crash_count}")
+              if crash_count != 0:
+                  print("FUZZING SECURITY GATE FAILED")
+                  failed = True
+              else:
+                  print("FUZZING SECURITY GATE PASSED")
+              print()
+
+          if failed:
+              print("SECURITY GATE FAILED: pipeline is blocked")
               sys.exit(1)
 
-          print("No blocking HIGH/CRITICAL findings detected")
-          print("SECURITY GATE PASSED")
+          print("SECURITY GATE PASSED: no blocking security issues detected")
           EOF
